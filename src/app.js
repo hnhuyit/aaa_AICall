@@ -2,6 +2,8 @@
 import express from "express";
 import morgan from "morgan";
 import bodyParser from "body-parser";
+import z from "zod";
+import cors from "cors";
 import webhookRoutes from "./routes/webhook.routes.js";
 import { logRequest } from "./middlewares/logger.js";
 import { errorHandler } from "./middlewares/errorHandler.js";
@@ -11,10 +13,6 @@ const app = express();
 // Định nghĩa các endpoint không cần kiểm tra API key
 // const allowedPaths = ["/webhook", "/fb-webhook", "/ig-webhook", "/messaging-webhook", "/public", "/health"];
 
-// Parse JSON và lưu raw body nếu cần xác thực chữ ký
-app.use(bodyParser.json({
-  verify: (req, res, buf) => { req.rawBody = buf.toString("utf8"); }
-}));
 
 // Static files (nếu có)
 // app.use(express.static("public"));
@@ -42,9 +40,146 @@ app.use(bodyParser.json({
 //   next();
 // });
 
+
+// BẮT BUỘC: set secret (nếu Retell hỗ trợ header secret / token)
+const RETELL_WEBHOOK_SECRET = process.env.RETELL_WEBHOOK_SECRET || "";
+
+// Parse JSON và lưu raw body nếu cần xác thực chữ ký
+app.use(bodyParser.json({
+  verify: (req, res, buf) => { req.rawBody = buf.toString("utf8"); }
+}));
+
 // Ghi log bằng morgan & middleware custom
+app.use(cors());
+app.use(express.json({ limit: "1mb" }));
 app.use(morgan("dev"));
 app.use(logRequest);
+
+
+// Simple auth middleware (tùy cách Retell gửi secret; bạn chỉnh header cho khớp)
+function verifyRetell(req, res, next) {
+  if (!RETELL_WEBHOOK_SECRET) return next(); // cho phép chạy dev
+
+  const token =
+    req.headers["x-retell-secret"] ||
+    req.headers["x-webhook-secret"] ||
+    req.headers["authorization"];
+
+  const normalized = Array.isArray(token) ? token[0] : token;
+  const value = (normalized || "").replace(/^Bearer\s+/i, "").trim();
+
+  if (value !== RETELL_WEBHOOK_SECRET) {
+    return res.status(401).json({
+      ok: false,
+      message: "Unauthorized webhook",
+      error: { code: "UNAUTHORIZED" },
+    });
+  }
+
+  next();
+}
+
+
+// ====== SCHEMAS (bạn thay theo payload Retell thực tế) ======
+const FunctionCallSchema = z.object({
+  // retell có thể gọi field khác, nhưng concept là như nhau
+  function: z.string().min(1),
+  arguments: z.record(z.any()).optional().default({}),
+  call_id: z.string().optional(),
+  conversation_id: z.string().optional(),
+});
+
+// ====== BUSINESS FUNCTION SCHEMAS ======
+const UpdateApptDetailArgs = z.object({
+  appointment_id: z.string().min(1),
+  // ISO hoặc string, tuỳ bạn
+  new_time_iso: z.string().min(1).optional(),
+  note: z.string().optional(),
+});
+
+// ====== FUNCTION HANDLERS ======
+async function updateApptDetail(args, context) {
+  const parsed = UpdateApptDetailArgs.safeParse(args);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      message: "Missing/invalid fields for update_appt_detail",
+      error: {
+        code: "VALIDATION_ERROR",
+        details: parsed.error.flatten(),
+      },
+    };
+  }
+
+  const { appointment_id, new_time_iso, note } = parsed.data;
+
+  // TODO: Call POS / Airtable / DB ở đây
+  // ví dụ giả lập:
+  const updated = {
+    appointment_id,
+    updated_time: new_time_iso || null,
+    note: note || null,
+    status: "UPDATED",
+  };
+
+  return {
+    ok: true,
+    message: `Appointment ${appointment_id} updated successfully.`,
+    data: updated,
+  };
+}
+
+// Map function name -> handler
+const handlers = {
+  update_appt_detail: updateApptDetail,
+  // create_booking: createBooking,
+  // check_availability: checkAvailability,
+  // cancel_appointment: cancelAppointment,
+};
+
+// ====== ENDPOINT ======
+// Gợi ý: set URL này vào Retell function webhook
+app.post("/retell/functions", verifyRetell, async (req, res) => {
+
+  console.log("Gọi đào", 1111)
+  // 1) parse payload chung
+  const parsed = FunctionCallSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      ok: false,
+      message: "Invalid webhook payload",
+      error: { code: "BAD_PAYLOAD", details: parsed.error.flatten() },
+    });
+  }
+
+  const { function: fnName, arguments: args, call_id, conversation_id } = parsed.data;
+
+  // 2) route theo function name
+  const handler = handlers[fnName];
+  if (!handler) {
+    return res.status(404).json({
+      ok: false,
+      message: `Unknown function: ${fnName}`,
+      error: { code: "FUNCTION_NOT_FOUND" },
+    });
+  }
+
+  // 3) run business handler
+  try {
+    const result = await handler(args, { call_id, conversation_id });
+
+    // IMPORTANT: Retell thường cần JSON “gọn & chắc”
+    // Bạn giữ consistent fields để Agent dễ đọc
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error("Function error:", err);
+    return res.status(500).json({
+      ok: false,
+      message: "Function execution failed",
+      error: { code: "INTERNAL_ERROR" },
+    });
+  }
+});
 
 // Đăng ký route – các endpoint liên quan đến webhook và hash
 app.use("/", webhookRoutes);
@@ -56,7 +191,7 @@ app.get('/health', (req, res) => {
 
 // Các route khác (vd: homepage)
 app.get("/", (req, res) => {
-  res.send("This is homepage.");
+  res.send("This is homepagedd.");
 });
 
 // Centralized error handler
