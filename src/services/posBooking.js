@@ -8,15 +8,38 @@ const traceId = `pos_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
 const log = (event, extra = {}) =>
   console.log(`[${traceId}] ${event}`, JSON.stringify(extra));
 
-// POS của bạn đang dùng MM/DD/YYYY HH:mm (theo code bạn)
-function toMMDDYYYY_HHMM(d) {
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  const hh = String(d.getHours()).padStart(2, "0");
-  const min = String(d.getMinutes()).padStart(2, "0");
+// // POS của bạn đang dùng MM/DD/YYYY HH:mm (theo code bạn)
+// function toMMDDYYYY_HHMM(d) {
+//   const mm = String(d.getMonth() + 1).padStart(2, "0");
+//   const dd = String(d.getDate()).padStart(2, "0");
+//   const yyyy = d.getFullYear();
+//   const hh = String(d.getHours()).padStart(2, "0");
+//   const min = String(d.getMinutes()).padStart(2, "0");
+//   return `${mm}/${dd}/${yyyy} ${hh}:${min}`;
+// }
+
+function toMMDDYYYY_HHMM(date, timeZone = "Asia/Ho_Chi_Minh") {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(date);
+
+  const get = (type) => parts.find(p => p.type === type)?.value;
+
+  const mm = get("month");
+  const dd = get("day");
+  const yyyy = get("year");
+  const hh = get("hour");
+  const min = get("minute");
+
   return `${mm}/${dd}/${yyyy} ${hh}:${min}`;
 }
+
 
 // TODO: thay bằng bảng mapping thật (Airtable/DB)
 export const DEFAULTS = {
@@ -55,14 +78,15 @@ export async function createBookingPOS({
     };
   }
 
-  // Parse datetime
-  if (!datetime_iso) {
-    return {
-      ok: false,
-      need: ["datetime_iso"],
-      message: "Bạn cho mình xin ngày giờ cụ thể (VD: 2025-12-15T18:30:00+07:00) nhé."
-    };
-  }
+
+    // Nếu user mới đưa datetime_text, bạn phải chốt lại để ra ISO
+    if (!datetime_iso && datetime_text) {
+        return {
+        ok: false,
+        need: ["datetime_iso"],
+        message: "Bạn cho mình xin ngày giờ cụ thể (VD: 2025-12-15T18:30:00+07:00) nhé."
+        };
+    }
 
   const start = new Date(datetime_iso);
   if (isNaN(start.getTime())) {
