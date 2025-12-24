@@ -4,6 +4,10 @@ function addMinutes(date, minutes) {
   return new Date(date.getTime() + minutes * 60 * 1000);
 }
 
+const traceId = `pos_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+const log = (event, extra = {}) =>
+  console.log(`[${traceId}] ${event}`, JSON.stringify(extra));
+
 // POS của bạn đang dùng MM/DD/YYYY HH:mm (theo code bạn)
 function toMMDDYYYY_HHMM(d) {
   const mm = String(d.getMonth() + 1).padStart(2, "0");
