@@ -280,6 +280,14 @@ app.post("/retell/functions", verifyRetell, async (req, res) => {
 
 /////////////////////
 
+const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY;
+const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID || "apptmh0D4kfxxCTn1";
+const MEMBERS_TABLE = process.env.MEMBERS_TABLE || "Customers";
+
+const FIELD_MEMBER_NAME = process.env.FIELD_MEMBER_NAME || "Name";
+const FIELD_MEMBER_PHONE = process.env.FIELD_MEMBER_PHONE || "phone";
+const FIELD_DELETED = process.env.FIELD_DELETED || "deleted_flag";
+const FIELD_CREATED = process.env.FIELD_CREATED || "Created";
 
 // ===== Helpers =====
 function ok(id, result, headers = {}) {
