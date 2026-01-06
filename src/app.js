@@ -300,6 +300,21 @@ function airtableHeaders() {
   };
 }
 
+// Normalize phone: keep digits, convert +84... -> 0...
+function normalizePhone(raw = "") {
+  const digits = String(raw).replace(/\D/g, "");
+  if (digits.startsWith("84") && digits.length >= 11) return "0" + digits.slice(2);
+  return digits;
+}
+
+function normalizeName(raw = "") {
+  return String(raw).trim().replace(/\s+/g, " ");
+}
+
+function toTime(v) {
+  const t = new Date(v || 0).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
 // ===== Helpers =====
 function ok(id, result, headers = {}) {
   return { status: 200, body: { jsonrpc: "2.0", id, result }, headers };
