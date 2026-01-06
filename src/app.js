@@ -311,6 +311,18 @@ function normalizeName(raw = "") {
   return String(raw).trim().replace(/\s+/g, " ");
 }
 
+function mustISO(s) {
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) throw new Error(`Invalid ISO datetime: ${s}`);
+  return s;
+}
+
+function addMinutes(iso, minutes) {
+  const d = new Date(iso);
+  d.setMinutes(d.getMinutes() + minutes);
+  return d.toISOString();
+}
+
 function toTime(v) {
   const t = new Date(v || 0).getTime();
   return Number.isFinite(t) ? t : 0;
@@ -347,6 +359,89 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  ////////////////////
+  {
+    name: "calendarCheckAvailability",
+    description:
+      "Check calendar availability for a service/time range. Returns available=true/false and optional conflicts.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        // location_id: { type: "string", description: "Location / business unit id" },
+        service_id: { type: "string", description: "Service identifier" },
+        staff_id: { type: "string", description: "Staff/agent identifier (optional if not required)" },
+        start_iso: { type: "string", description: "ISO datetime with timezone, e.g. 2026-01-06T14:00:00+07:00" },
+        end_iso: { type: "string", description: "ISO datetime with timezone" },
+      },
+      required: ["service_id", "start_iso", "end_iso"],
+      additionalProperties: false,
+    },
+  },
+
+  {
+    name: "calendarSuggestAlternatives",
+    description:
+      "Suggest alternative available slots near a desired time. Returns up to N slot options.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        // location_id: { type: "string" },
+        service_id: { type: "string" },
+        staff_id: { type: "string" },
+        desired_start_iso: { type: "string" },
+        duration_minutes: { type: "integer", minimum: 5, maximum: 600 },
+        window_hours: { type: "integer", minimum: 1, maximum: 168, description: "Search window around desired time" },
+        limit: { type: "integer", minimum: 1, maximum: 10 },
+      },
+      required: ["service_id", "desired_start_iso", "duration_minutes"],
+      additionalProperties: false,
+    },
+  },
+
+  {
+    name: "calendarConfirmBooking",
+    description:
+      "Create/confirm a booking. Requires verified availability. Returns booking_id and confirmed details.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        // location_id: { type: "string" },
+        service_id: { type: "string" },
+        staff_id: { type: "string" },
+        start_iso: { type: "string" },
+        end_iso: { type: "string" },
+
+        // customer identity
+        phone: { type: "string" },
+        name: { type: "string" },
+        email: { type: "string" },
+
+        // optional notes / tags
+        note: { type: "string" },
+        source: { type: "string", description: "e.g. voice_call, sms, chat" },
+      },
+      required: ["service_id", "start_iso", "end_iso", "phone", "name"],
+      additionalProperties: false,
+    },
+  },
+
+  {
+    name: "calendarCancelOrChange",
+    description:
+      "Cancel or reschedule an existing booking. Provide booking_id. For reschedule, include new_start_iso/new_end_iso.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        booking_id: { type: "string" },
+        action: { type: "string", enum: ["cancel", "reschedule"] },
+        new_start_iso: { type: "string" },
+        new_end_iso: { type: "string" },
+        reason: { type: "string" },
+      },
+      required: ["booking_id", "action"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 async function airtableList({ tableName, filterByFormula, fields = [], pageSize = 100 }) {
@@ -361,6 +456,7 @@ async function airtableList({ tableName, filterByFormula, fields = [], pageSize 
   if (!r.ok) throw new Error(`Airtable error (${r.status}): ${JSON.stringify(data)}`);
   return data.records || [];
 }
+
 // ===== TOOL IMPLEMENTATION =====
 async function lookupByPhone({ phone }) {
   console.log("lookupByPhone")
@@ -459,6 +555,186 @@ async function lookupByName({ name }) {
   };
 }
 
+async function calendarCheckAvailability(args) {
+  const {
+    // location_id,
+    service_id,
+    staff_id,
+    start_iso,
+    end_iso,
+  } = args;
+
+  mustISO(start_iso);
+  mustISO(end_iso);
+
+  // TODO: Replace with real check (GHL Calendar / your DB)
+  // Example stub: assume business hours 09:00-18:00 and no conflicts
+  const available = true;
+
+  return {
+    ok: true,
+    available,
+    // location_id,
+    service_id,
+    staff_id: staff_id || null,
+    start_iso,
+    end_iso,
+    message: available
+      ? "Slot is available."
+      : "Slot is not available.",
+  };
+}
+
+async function calendarSuggestAlternatives(args) {
+  const {
+    // location_id,
+    service_id,
+    staff_id,
+    desired_start_iso,
+    duration_minutes,
+    window_hours = 24,
+    limit = 5,
+  } = args;
+
+  mustISO(desired_start_iso);
+
+  // TODO: Replace with real slot search
+  // Very simple stub: suggest next N slots every 60 minutes
+  const suggestions = [];
+  let cursor = new Date(desired_start_iso);
+
+  for (let i = 0; i < limit; i++) {
+    cursor.setHours(cursor.getHours() + 1);
+    const start = cursor.toISOString();
+    const end = new Date(cursor);
+    end.setMinutes(end.getMinutes() + duration_minutes);
+    suggestions.push({ start_iso: start, end_iso: end.toISOString() });
+  }
+
+  return {
+    ok: true,
+    // location_id,
+    service_id,
+    staff_id: staff_id || null,
+    desired_start_iso,
+    duration_minutes,
+    window_hours,
+    suggestions,
+    message: suggestions.length
+      ? "Here are alternative slots."
+      : "No alternatives found.",
+  };
+}
+
+async function calendarConfirmBooking(args) {
+  const {
+    // location_id,
+    service_id,
+    staff_id,
+    start_iso,
+    end_iso,
+    phone,
+    name,
+    email,
+    note,
+    source,
+  } = args;
+
+  mustISO(start_iso);
+  mustISO(end_iso);
+
+  // 1) Always re-check availability before creating booking (important)
+  const check = await calendarCheckAvailability({
+    // location_id,
+    service_id,
+    staff_id,
+    start_iso,
+    end_iso,
+  });
+
+  if (!check.available) {
+    return {
+      ok: true,
+      confirmed: false,
+      available: false,
+      booking_id: null,
+      start_iso,
+      end_iso,
+      message: "That time is not available. Please choose another slot.",
+    };
+  }
+
+  // 2) TODO: Create booking in real system
+  // Replace with GHL booking creation / DB insert.
+  const booking_id = `bk_${Date.now()}`;
+
+  return {
+    ok: true,
+    confirmed: true,
+    available: true,
+    booking_id,
+    // location_id,
+    service_id,
+    staff_id: staff_id || null,
+    start_iso,
+    end_iso,
+    customer: {
+      phone,
+      name,
+      email: email || null,
+    },
+    note: note || null,
+    source: source || "voice_call",
+    message: "Booking confirmed.",
+  };
+}
+
+async function calendarCancelOrChange(args) {
+  const { booking_id, action, new_start_iso, new_end_iso, reason } = args;
+
+  if (action === "reschedule") {
+    mustISO(new_start_iso);
+    mustISO(new_end_iso);
+
+    // TODO: check availability + update booking
+    const available = true;
+
+    if (!available) {
+      return {
+        ok: true,
+        updated: false,
+        booking_id,
+        action,
+        message: "New time is not available.",
+      };
+    }
+
+    // TODO: update booking in your system
+    return {
+      ok: true,
+      updated: true,
+      booking_id,
+      action,
+      new_start_iso,
+      new_end_iso,
+      reason: reason || null,
+      message: "Booking rescheduled.",
+    };
+  }
+
+  // action === "cancel"
+  // TODO: cancel booking in your system
+  return {
+    ok: true,
+    updated: true,
+    booking_id,
+    action,
+    reason: reason || null,
+    message: "Booking cancelled.",
+  };
+}
+
+
 // ====== POST /mcp (JSON-RPC) ======
 async function handler(req, res) {
   console.log("handler", 111)
@@ -501,6 +777,30 @@ async function handler(req, res) {
 
       if (toolName === "lookupByName") {
         const result = await lookupByName(args);
+        const out = ok(id, result);
+        return res.status(out.status).json(out.body);
+      }
+
+      if (toolName === "calendarCheckAvailability") {
+        const result = await calendarCheckAvailability(args);
+        const out = ok(id, result);
+        return res.status(out.status).json(out.body);
+      }
+
+      if (toolName === "calendarSuggestAlternatives") {
+        const result = await calendarSuggestAlternatives(args);
+        const out = ok(id, result);
+        return res.status(out.status).json(out.body);
+      }
+
+      if (toolName === "calendarConfirmBooking") {
+        const result = await calendarConfirmBooking(args);
+        const out = ok(id, result);
+        return res.status(out.status).json(out.body);
+      }
+
+      if (toolName === "calendarCancelOrChange") {
+        const result = await calendarCancelOrChange(args);
         const out = ok(id, result);
         return res.status(out.status).json(out.body);
       }
