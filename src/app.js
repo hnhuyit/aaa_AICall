@@ -348,6 +348,7 @@ async function airtableList({ tableName, filterByFormula, fields = [], pageSize 
 }
 // ===== TOOL IMPLEMENTATION =====
 async function lookupByPhone({ phone }) {
+  console.log("lookupByPhone")
   const p = normalizePhone(phone);
   if (!p) {
     return { content: [{ type: "text", text: JSON.stringify({ found: false, count: 0, members: [] }) }] };
@@ -395,6 +396,7 @@ async function lookupByPhone({ phone }) {
 }
 
 async function lookupByName({ name }) {
+  console.log("lookupByName")
   const n = normalizeName(name);
   if (!n) {
     return { content: [{ type: "text", text: JSON.stringify({ found: false, count: 0, members: [] }) }] };
@@ -444,7 +446,7 @@ async function lookupByName({ name }) {
 
 // ====== POST /mcp (JSON-RPC) ======
 async function handler(req, res) {
-  console.log("111", 111)
+  console.log("handler", 111)
   try {
     const { id, method, params } = req.body || {};
 
@@ -476,13 +478,13 @@ async function handler(req, res) {
         return res.status(out.status).json(out.body);
       }
 
-      if (toolName === "member.lookupByPhone") {
+      if (toolName === "lookupByPhone") {
         const result = await lookupByPhone(args);
         const out = ok(id, result);
         return res.status(out.status).json(out.body);
       }
 
-      if (toolName === "member.lookupByName") {
+      if (toolName === "lookupByName") {
         const result = await lookupByName(args);
         const out = ok(id, result);
         return res.status(out.status).json(out.body);
