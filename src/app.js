@@ -289,6 +289,17 @@ const FIELD_MEMBER_PHONE = process.env.FIELD_MEMBER_PHONE || "phone";
 const FIELD_DELETED = process.env.FIELD_DELETED || "deleted_flag";
 const FIELD_CREATED = process.env.FIELD_CREATED || "Created";
 
+
+// ====== Airtable helpers ======
+const AIRTABLE_API = "https://api.airtable.com/v0";
+
+function airtableHeaders() {
+  return {
+    Authorization: `Bearer ${AIRTABLE_API_KEY}`,
+    "Content-Type": "application/json",
+  };
+}
+
 // ===== Helpers =====
 function ok(id, result, headers = {}) {
   return { status: 200, body: { jsonrpc: "2.0", id, result }, headers };
@@ -302,7 +313,7 @@ const TOOLS = [
   {
     name: "member.lookup_by_phone",
     description:
-      "Lookup a member by phone number. Normalizes phone, filters deleted=true, returns newest record.",
+      "Lookup a member by phone number. Normalizes phone input, filters deleted_flag=false. If multiple records exist, returns the newest record. Returns found=false if no matching member is found.",
     inputSchema: {
       type: "object",
       properties: { phone: { type: "string" } },
@@ -313,7 +324,7 @@ const TOOLS = [
   {
     name: "member.lookup_by_name",
     description:
-      "Lookup members by name (partial match). Filters deleted=true, returns up to 5 newest matches with phone_last4.",
+      "Lookup members by name (partial match). Filters deleted_flag=false, returns up to 5 newest matches with phone_last4.",
     inputSchema: {
       type: "object",
       properties: { name: { type: "string" } },
@@ -323,6 +334,18 @@ const TOOLS = [
   },
 ];
 
+async function airtableList({ tableName, filterByFormula, fields = [], pageSize = 100 }) {
+  const params = new URLSearchParams();
+  if (filterByFormula) params.set("filterByFormula", filterByFormula);
+  for (const f of fields) params.append("fields[]", f);
+  params.set("pageSize", String(pageSize));
+
+  const url = `${AIRTABLE_API}/${AIRTABLE_BASE_ID}/${encodeURIComponent(tableName)}?${params.toString()}`;
+  const r = await fetch(url, { headers: airtableHeaders() });
+  const data = await r.json();
+  if (!r.ok) throw new Error(`Airtable error (${r.status}): ${JSON.stringify(data)}`);
+  return data.records || [];
+}
 // ===== TOOL IMPLEMENTATION =====
 async function lookupByPhone({ phone }) {
   const p = normalizePhone(phone);
@@ -421,6 +444,7 @@ async function lookupByName({ name }) {
 
 // ====== POST /mcp (JSON-RPC) ======
 async function handler(req, res) {
+  console.log("111", 111)
   try {
     const { id, method, params } = req.body || {};
 
