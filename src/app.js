@@ -360,6 +360,30 @@ const TOOLS = [
     },
   },
   ////////////////////
+  
+  // --- NEW: time_resolve ---
+  {
+    name: "timeResolve",
+    description:
+      "Resolve natural language time (e.g. '3 giờ chiều mai') into start_iso/end_iso using MCP server timezone as source of truth.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        timezone: {
+          type: "string",
+          description: "IANA timezone, e.g. Asia/Ho_Chi_Minh",
+        },
+        datetime_text: {
+          type: "string",
+          description: "e.g. '3 giờ chiều mai' / '3pm tomorrow'",
+        },
+        duration_minutes: { type: "integer", minimum: 5, maximum: 600 },
+      },
+      required: ["datetime_text"],
+      additionalProperties: false,
+    },
+  },
+  ////////////////////
   {
     name: "calendarCheckAvailability",
     description:
@@ -458,6 +482,70 @@ async function airtableList({ tableName, filterByFormula, fields = [], pageSize 
 }
 
 // ===== TOOL IMPLEMENTATION =====
+
+// ===== Time resolve core =====
+const DEFAULT_TZ = "Asia/Ho_Chi_Minh";
+
+function resolveRelative(datetime_text, timezone) {
+  const tz = timezone || DEFAULT_TZ;
+  const now = DateTime.now().setZone(tz);
+  const text = String(datetime_text || "").trim().toLowerCase();
+
+  // Base date selection
+  let base = now;
+  if (text.includes("mai") || text.includes("tomorrow")) base = now.plus({ days: 1 });
+  if (text.includes("mốt") || text.includes("day after tomorrow")) base = now.plus({ days: 2 });
+
+  // Hour parsing
+  let hour = null;
+  let minute = 0;
+
+  // 3pm / 3 pm / 03pm
+  const ampm = text.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)/);
+  if (ampm) {
+    hour = parseInt(ampm[1], 10);
+    minute = ampm[2] ? parseInt(ampm[2], 10) : 0;
+    const mer = ampm[3];
+    if (mer === "pm" && hour < 12) hour += 12;
+    if (mer === "am" && hour === 12) hour = 0;
+  }
+
+  // "15h", "15 giờ", "15:30"
+  if (hour == null) {
+    const hm = text.match(/(\d{1,2})(?::(\d{2}))?\s*(giờ|h)?/);
+    // hm will match a lot; we guard with keywords typically present
+    const hasTimeKeyword =
+      text.includes("giờ") || text.includes("h") || text.includes(":") || text.includes("am") || text.includes("pm");
+    if (hm && hasTimeKeyword) {
+      hour = parseInt(hm[1], 10);
+      minute = hm[2] ? parseInt(hm[2], 10) : 0;
+    }
+  }
+
+  // "chiều" implies PM if hour < 12
+  if (text.includes("chiều") && hour != null && hour < 12) hour += 12;
+
+  if (hour == null || Number.isNaN(hour)) {
+    throw new Error("Missing hour in datetime_text. Example: '3 giờ chiều mai' or '3pm tomorrow'.");
+  }
+
+  const start = base.set({ hour, minute, second: 0, millisecond: 0 });
+  return start;
+}
+
+function timeResolve({ datetime_text, timezone, duration_minutes = 60 }) {
+  const start = resolveRelative(datetime_text, timezone);
+  const end = start.plus({ minutes: duration_minutes });
+
+  return {
+    ok: true,
+    timezone: timezone || DEFAULT_TZ,
+    start_iso: start.toISO(),
+    end_iso: end.toISO(),
+    human: start.toFormat("cccc, HH:mm"), // ex: Thursday, 15:00
+  };
+}
+
 async function lookupByPhone({ phone }) {
   console.log("lookupByPhone")
   const p = normalizePhone(phone);
@@ -777,6 +865,13 @@ async function handler(req, res) {
 
       if (toolName === "lookupByName") {
         const result = await lookupByName(args);
+        const out = ok(id, result);
+        return res.status(out.status).json(out.body);
+      }
+      
+      // NEW
+      if (toolName === "timeResolve") {
+        const result = timeResolve(args);
         const out = ok(id, result);
         return res.status(out.status).json(out.body);
       }
