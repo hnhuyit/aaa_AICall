@@ -311,7 +311,7 @@ function err(id, code, message, headers = {}) {
 // ===== MCP TOOLS =====
 const TOOLS = [
   {
-    name: "member.lookup_by_phone",
+    name: "member.lookupByPhone",
     description:
       "Lookup a member by phone number. Normalizes phone input, filters deleted_flag=false. If multiple records exist, returns the newest record. Returns found=false if no matching member is found.",
     inputSchema: {
@@ -322,7 +322,7 @@ const TOOLS = [
     },
   },
   {
-    name: "member.lookup_by_name",
+    name: "member.lookupByName",
     description:
       "Lookup members by name (partial match). Filters deleted_flag=false, returns up to 5 newest matches with phone_last4.",
     inputSchema: {
@@ -476,13 +476,13 @@ async function handler(req, res) {
         return res.status(out.status).json(out.body);
       }
 
-      if (toolName === "member.lookup_by_phone") {
+      if (toolName === "member.lookupByPhone") {
         const result = await lookupByPhone(args);
         const out = ok(id, result);
         return res.status(out.status).json(out.body);
       }
 
-      if (toolName === "member.lookup_by_name") {
+      if (toolName === "member.lookupByName") {
         const result = await lookupByName(args);
         const out = ok(id, result);
         return res.status(out.status).json(out.body);
